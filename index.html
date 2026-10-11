@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atomic Ink: Last Call</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#130f10;color:#f5e6c8;font-family:Georgia,serif}canvas{display:block;width:100vw;height:100vh;image-rendering:auto}.ui{position:fixed;inset:0;pointer-events:none}.top{display:flex;justify-content:space-between;padding:18px 22px;text-shadow:2px 2px #000}.panel{background:#181313d9;border:3px solid #e0bd72;border-radius:8px;padding:9px 13px;box-shadow:0 0 0 2px #2d1d1d}.title{font-size:19px;color:#ffd977}.small{font:14px Arial,sans-serif;color:#eee}.bars{width:270px}.bar{height:13px;border:2px solid #160b0b;background:#3a2b2b;margin-top:4px}.fill{height:100%}.hp{background:#d24134}.xp{background:#e5bd42}.ammo{font:bold 24px Arial,sans-serif;color:#ffd85e}.center{position:absolute;top:8%;left:50%;transform:translateX(-50%);text-align:center;font:bold 22px Arial,sans-serif;text-shadow:3px 3px #000}.notice{position:absolute;left:50%;top:64%;transform:translate(-50%,-50%);font:bold 18px Arial,sans-serif;text-align:center;text-shadow:2px 2px #000}.cross{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%)}.cross:before,.cross:after{content:"";position:absolute;background:#fff;box-shadow:0 0 2px #000}.cross:before{width:18px;height:2px;top:8px}.cross:after{height:18px;width:2px;left:8px}.bottom{position:absolute;bottom:18px;left:22px;font:14px Arial,sans-serif}.overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#100b08e8;pointer-events:auto}.card{max-width:720px;padding:35px;text-align:center;border:5px double #e5bd72;background:#211719;box-shadow:0 0 60px #000}.card h1{margin:0;color:#ffd36a;font-size:48px;letter-spacing:2px;text-shadow:4px 4px #772828}.card p{font:18px Arial,sans-serif;line-height:1.5}.card button{font:bold 20px Georgia,serif;padding:12px 28px;background:#c84935;color:#fff4cf;border:3px solid #ffd477;border-radius:7px;cursor:pointer}.hide{display:none}.vignette{position:fixed;inset:0;box-shadow:inset 0 0 130px 35px #000;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="ui">
+ <div class="top"><div class="panel bars"><div class="title">THE DRIFTER &nbsp; LVL <span id="lvl">1</span></div><div class="small">HP <span id="hpText">100</span>/100</div><div class="bar"><div id="hp" class="fill hp" style="width:100%"></div></div><div class="small">XP</div><div class="bar"><div id="xp" class="fill xp" style="width:0%"></div></div></div><div class="panel"><div id="ammo" class="ammo">6 / 48</div><div class="small">SCRAP: <span id="scrap">0</span> &nbsp; SCORE: <span id="score">0</span></div></div></div>
+ <div id="wave" class="center"></div><div class="cross"></div><div id="notice" class="notice"></div>
+ <div class="panel bottom">WASD move - Mouse aim/shoot - R reload - E buy perk - Space dash</div>
+</div>
+<div class="vignette"></div>
+<div id="menu" class="overlay"><div class="card"><h1>ATOMIC INK</h1><h2>LAST CALL</h2><p>A hand-inked wasteland action RPG. Survive undead waves, earn scrap, level up, and buy mutations from the glowing bunker terminal.</p><p><b>Tip:</b> keep moving. Headshots deal triple damage.</p><button id="start">ENTER THE WASTELAND</button></div></div>
+<div id="dead" class="overlay hide"><div class="card"><h1>YOU DIED</h1><p id="final"></p><button onclick="location.reload()">TRY AGAIN</button></div></div>
+<script>
+const C=document.getElementById('game'),X=C.getContext('2d');let W,H,dpr;
+function resize(){dpr=Math.min(devicePixelRatio,2);W=innerWidth;H=innerHeight;C.width=W*dpr;C.height=H*dpr;X.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
+const keys={},mouse={x:W/2,y:H/2,down:false};addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;if(e.key===' ')e.preventDefault()});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);C.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY});C.addEventListener('mousedown',()=>mouse.down=true);addEventListener('mouseup',()=>mouse.down=false);
+let running=false,last=0,wave=0,toSpawn=0,spawnTimer=0,between=0,score=0,scrap=0,kills=0,shake=0,flash=0;
+let p={x:W/2,y:H/2,r:18,hp:100,max:100,speed:235,ammo:6,clip:6,reserve:48,reload:0,fire:0,dash:0,level:1,xp:0,next:100,damage:34};
+let bullets=[],zombies=[],parts=[],pickups=[];const terminal={x:120,y:150,r:42};
+function rnd(a,b){return a+Math.random()*(b-a)}function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function burst(x,y,color,n=10){for(let i=0;i<n;i++)parts.push({x,y,vx:rnd(-180,180),vy:rnd(-180,180),life:rnd(.25,.65),c:color,s:rnd(2,6)})}
+function spawn(){let side=Math.floor(Math.random()*4),x,y;if(side===0){x=rnd(0,W);y=-35}else if(side===1){x=W+35;y=rnd(0,H)}else if(side===2){x=rnd(0,W);y=H+35}else{x=-35;y=rnd(0,H)}let brute=Math.random()<Math.min(.08+wave*.015,.35);zombies.push({x,y,r:brute?28:19,hp:brute?130+wave*12:55+wave*8,max:brute?130+wave*12:55+wave*8,s:brute?45+wave*2:65+wave*3,hit:0,brute,phase:rnd(0,6),dmg:brute?20:11})}
+function nextWave(){wave++;toSpawn=5+wave*3;spawnTimer=.5;document.getElementById('wave').textContent='WAVE '+wave;setTimeout(()=>document.getElementById('wave').textContent='',1500)}
+function shoot(){if(p.reload||p.fire>0)return;if(p.ammo<=0){reload();return}p.ammo--;p.fire=.16;let a=Math.atan2(mouse.y-p.y,mouse.x-p.x),spread=rnd(-.035,.035);a+=spread;bullets.push({x:p.x+Math.cos(a)*25,y:p.y+Math.sin(a)*25,vx:Math.cos(a)*780,vy:Math.sin(a)*780,life:.85,d:p.damage});shake=3;burst(p.x+Math.cos(a)*28,p.y+Math.sin(a)*28,'#ffd86a',4)}
+function reload(){if(!p.reload&&p.ammo<p.clip&&p.reserve>0)p.reload=1.15}
+function levelUp(){p.level++;p.next=Math.floor(p.next*1.45);p.max+=12;p.hp=p.max;p.damage+=6;p.speed+=5;burst(p.x,p.y,'#ffe66e',35);note('LEVEL UP! Damage and health increased.')}
+function note(t){let n=document.getElementById('notice');n.textContent=t;clearTimeout(note.t);note.t=setTimeout(()=>n.textContent='',1400)}
+function update(dt){if(!running)return;p.fire-=dt;p.dash-=dt;flash-=dt;if(keys.r)reload();if(p.reload){p.reload-=dt;if(p.reload<=0){let n=Math.min(p.clip-p.ammo,p.reserve);p.ammo+=n;p.reserve-=n;p.reload=0}}
+ let dx=(keys.d?1:0)-(keys.a?1:0),dy=(keys.s?1:0)-(keys.w?1:0),l=Math.hypot(dx,dy)||1,m=1;if(keys[' ']&&p.dash<=0){p.dash=1.2;m=3;burst(p.x,p.y,'#ddd4ad',12)}p.x=Math.max(20,Math.min(W-20,p.x+dx/l*p.speed*m*dt));p.y=Math.max(20,Math.min(H-20,p.y+dy/l*p.speed*m*dt));if(mouse.down)shoot();
+ if(keys.e&&dist(p,terminal)<85){keys.e=0;if(scrap>=80){scrap-=80;p.clip+=2;p.ammo=p.clip;p.reserve+=18;p.damage+=5;note('MUTATION BOUGHT: Bigger clip + damage')}else note('Need 80 scrap')}
+ if(toSpawn>0){spawnTimer-=dt;if(spawnTimer<=0){spawn();toSpawn--;spawnTimer=Math.max(.18,.7-wave*.025)}}else if(zombies.length===0){between-=dt;if(between<=0){between=3;nextWave()}}
+ for(let i=bullets.length-1;i>=0;i--){let b=bullets[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;let gone=b.life<0;for(let j=zombies.length-1;j>=0&&!gone;j--){let z=zombies[j],dd=Math.hypot(b.x-z.x,b.y-z.y);if(dd<z.r+4){let head=b.y<z.y-z.r*.25,mul=head?3:1;z.hp-=b.d*mul;z.hit=.08;burst(b.x,b.y,head?'#ffe4a1':'#9c2929',head?12:6);gone=true;if(z.hp<=0){score+=z.brute?250:100;scrap+=z.brute?25:10;p.xp+=z.brute?35:18;kills++;if(Math.random()<.28)pickups.push({x:z.x,y:z.y,t:Math.random()<.45?'ammo':'heal',r:11});burst(z.x,z.y,'#6d1515',18);zombies.splice(j,1);if(p.xp>=p.next){p.xp-=p.next;levelUp()}}}}if(gone)bullets.splice(i,1)}
+ for(let z of zombies){z.phase+=dt*7;z.hit-=dt;let a=Math.atan2(p.y-z.y,p.x-z.x);z.x+=Math.cos(a)*z.s*dt;z.y+=Math.sin(a)*z.s*dt;if(dist(p,z)<p.r+z.r){p.hp-=z.dmg*dt;flash=.1;shake=5;if(p.hp<=0)die()}}
+ for(let i=pickups.length-1;i>=0;i--){let q=pickups[i];if(dist(p,q)<35){if(q.t==='ammo'){p.reserve+=18;note('+18 AMMO')}else{p.hp=Math.min(p.max,p.hp+28);note('+28 HEALTH')}pickups.splice(i,1)}}
+ for(let i=parts.length-1;i>=0;i--){let q=parts[i];q.x+=q.vx*dt;q.y+=q.vy*dt;q.vx*=.96;q.vy*=.96;q.life-=dt;if(q.life<0)parts.splice(i,1)}
+ updateUI()}
+function die(){running=false;document.getElementById('dead').classList.remove('hide');document.getElementById('final').textContent=`Wave ${wave} - ${kills} kills - ${score} points`}
+function updateUI(){document.getElementById('hp').style.width=100*p.hp/p.max+'%';document.getElementById('hpText').textContent=Math.max(0,Math.ceil(p.hp));document.getElementById('xp').style.width=100*p.xp/p.next+'%';document.getElementById('lvl').textContent=p.level;document.getElementById('ammo').textContent=(p.reload>0?'RELOADING ':p.ammo+' / '+p.reserve);document.getElementById('scrap').textContent=scrap;document.getElementById('score').textContent=score}
+function draw(){X.save();let sx=shake?rnd(-shake,shake):0,sy=shake?rnd(-shake,shake):0;shake*=.85;X.translate(sx,sy);X.fillStyle='#c9b47c';X.fillRect(-10,-10,W+20,H+20);
+ // cracked wasteland grid
+ X.strokeStyle='#6f603e';X.lineWidth=2;for(let x=30;x<W;x+=90){X.beginPath();X.moveTo(x,0);X.lineTo(x+rnd(-20,20),H);X.stroke()}for(let y=45;y<H;y+=85){X.beginPath();X.moveTo(0,y);X.lineTo(W,y+rnd(-12,12));X.stroke()}for(let i=0;i<18;i++){let x=(i*193)%W,y=(i*127)%H;X.strokeStyle='#85734c';X.beginPath();X.moveTo(x,y);X.lineTo(x+15,y+8);X.lineTo(x+5,y+20);X.stroke()}
+ // terminal
+ X.fillStyle='#24191b';X.strokeStyle='#12090a';X.lineWidth=5;X.beginPath();X.arc(terminal.x,terminal.y,terminal.r,0,7);X.fill();X.stroke();X.fillStyle='#78ff65';X.fillRect(terminal.x-22,terminal.y-17,44,28);X.fillStyle='#132c13';X.font='bold 11px monospace';X.fillText('PERK',terminal.x-14,terminal.y);X.strokeStyle='#78ff65';X.lineWidth=2;X.beginPath();X.arc(terminal.x,terminal.y,terminal.r+8,0,7);X.stroke();if(dist(p,terminal)<85){X.fillStyle='#fff';X.font='bold 14px Arial';X.fillText('[E] MUTATE - 80 SCRAP',terminal.x-76,terminal.y+70)}
+ for(let q of pickups){X.fillStyle=q.t==='ammo'?'#f0c53b':'#ef463b';X.strokeStyle='#211';X.lineWidth=3;X.beginPath();X.arc(q.x,q.y,q.r,0,7);X.fill();X.stroke();X.fillStyle='#fff';X.font='bold 14px Arial';X.fillText(q.t==='ammo'?'A':'+',q.x-5,q.y+5)}
+ for(let z of zombies){X.save();X.translate(z.x,z.y);let a=Math.atan2(p.y-z.y,p.x-z.x);X.rotate(a);X.fillStyle=z.hit>0?'#fff':z.brute?'#5b2730':'#77864c';X.strokeStyle='#1b1111';X.lineWidth=5;X.beginPath();X.ellipse(0,0,z.r,z.r*.82,0,0,7);X.fill();X.stroke();X.fillStyle='#d6d08d';X.beginPath();X.arc(z.r*.3,-z.r*.12,z.r*.42,0,7);X.fill();X.stroke();X.fillStyle='#e93b2f';X.beginPath();X.arc(z.r*.48,-z.r*.2,3,0,7);X.fill();X.fillStyle='#351818';X.fillRect(-z.r,-z.r-12,2*z.r,5);X.fillStyle='#c8322b';X.fillRect(-z.r,-z.r-12,2*z.r*Math.max(0,z.hp/z.max),5);X.restore()}
+ for(let b of bullets){X.fillStyle='#fff4a3';X.beginPath();X.arc(b.x,b.y,4,0,7);X.fill()}
+ for(let q of parts){X.globalAlpha=Math.max(0,q.life*2);X.fillStyle=q.c;X.beginPath();X.arc(q.x,q.y,q.s,0,7);X.fill();X.globalAlpha=1}
+ // player, arm and gun
+ let a=Math.atan2(mouse.y-p.y,mouse.x-p.x);X.save();X.translate(p.x,p.y);X.rotate(a);X.fillStyle='#2b5270';X.strokeStyle='#160d10';X.lineWidth=5;X.beginPath();X.arc(0,0,p.r,0,7);X.fill();X.stroke();X.fillStyle='#dfb16d';X.beginPath();X.arc(5,-5,11,0,7);X.fill();X.stroke();X.fillStyle='#333';X.fillRect(9,-6,31,12);X.fillStyle='#74492d';X.fillRect(10,5,12,10);X.restore();
+ X.restore();if(flash>0){X.fillStyle='#d7192055';X.fillRect(0,0,W,H)}requestAnimationFrame(loop)}
+function loop(t){let dt=Math.min(.033,(t-last)/1000||0);last=t;update(dt);draw()}
+document.getElementById('start').onclick=()=>{document.getElementById('menu').classList.add('hide');running=true;between=.2;C.requestPointerLock?.()};requestAnimationFrame(loop);
+</script>
+</body>
+</html>
